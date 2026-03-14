@@ -7,7 +7,7 @@ import {
   BookOpen, Brain, Calculator, FlaskConical, GraduationCap,
   Image as ImageIcon, Lightbulb, MessageSquarePlus, Paperclip,
   PanelLeftClose, PanelLeftOpen, Send, Sparkles, Target,
-  Trash2, X, Zap,
+  Trash2, X, Square
 } from "lucide-react";
 
 /* ── Types ───────────────────────────────────────────────────────────────────── */
@@ -86,7 +86,6 @@ if (toolName === "get_study_tips") return (
             <p style={{ color:"var(--text)",fontSize:"0.875rem",lineHeight:1.6,margin:0 }}>{String(tip)}</p>
           </div>
         ))}
-        {/* THE FIX: Replaced '&&' with a type-safe ternary '? : null' */}
         {result.reminder ? <p style={{ color:"var(--text-2)",fontSize:"0.8125rem",fontStyle:"italic",marginTop:10,paddingTop:10,borderTop:"1px solid rgba(45,212,191,0.1)" }}>✦ {String(result.reminder)}</p> : null}
       </div>
     </div>
@@ -286,6 +285,7 @@ export default function Home() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef   = useRef<HTMLInputElement>(null);
   const textareaRef    = useRef<HTMLTextAreaElement>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   // Load sessions
   useEffect(() => {
@@ -376,19 +376,45 @@ export default function Home() {
     if (files.length) { const p = await Promise.all(files.map(processFile)); setAttachedFiles(prev=>[...prev,...p]); }
   };
 
-  // ── MAIN SEND FUNCTION — pure fetch, no useChat ────────────────────────────
+  const handlePaste = async (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+
+    const imageFiles: File[] = [];
+    for (const item of Array.from(items)) {
+      if (item.type.startsWith("image/")) {
+        const file = item.getAsFile();
+        if (file) imageFiles.push(file);
+      }
+    }
+
+    if (imageFiles.length > 0) {
+      e.preventDefault();
+      const processed = await Promise.all(imageFiles.map(processFile));
+      setAttachedFiles(prev => [...prev, ...processed]);
+    }
+  };
+
+  const stopGeneration = useCallback(() => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+    setIsLoading(false);
+  }, []);
+
   const sendMessage = useCallback(async () => {
     const text = input.trim();
     const files = [...attachedFiles];
     if (!text && files.length === 0) return;
     if (isLoading) return;
 
-    // Clear UI state immediately
+    abortControllerRef.current = new AbortController();
+
     setInput("");
     setAttachedFiles([]);
     if (textareaRef.current) textareaRef.current.style.height = "auto";
 
-    // Build user message
     const userId = `u_${Date.now()}`;
     const userMsg: AppMessage = {
       id: userId,
@@ -401,19 +427,23 @@ export default function Home() {
     setMessages(newMessages);
     setIsLoading(true);
 
-    // Create placeholder assistant message
     const assistantId = `a_${Date.now()}`;
     const assistantMsg: AppMessage = { id: assistantId, role: "assistant", content: "" };
     setMessages([...newMessages, assistantMsg]);
 
+    // THE FIX: Define these variables outside the try block so they are accessible in the catch block!
+    let fullContent = "";
+    let toolName: string | undefined;
+    let toolResult: Record<string,unknown> | undefined;
+
     try {
-      // Build API payload — multimodal content for image messages
       const apiMessages = buildApiMessages(newMessages);
 
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ messages: apiMessages }),
+        signal: abortControllerRef.current.signal,
       });
 
       if (!res.ok) {
@@ -421,18 +451,11 @@ export default function Home() {
         throw new Error(err.error || `HTTP ${res.status}`);
       }
 
-      // Read full response and parse AI SDK stream format
       const rawText = await res.text();
-      console.log("RAW LENGTH:", rawText.length, "FIRST 200:", rawText.slice(0,200));
-
-      let fullContent = "";
-      let toolName: string | undefined;
-      let toolResult: Record<string,unknown> | undefined;
 
       for (const line of rawText.split("\n")) {
         const t = line.trim();
         if (!t) continue;
-        console.log("LINE:", t.slice(0, 60));
         if (t.startsWith("0:")) {
           try { const c = JSON.parse(t.slice(2)); if (typeof c === "string") fullContent += c; } catch {/**/}
         }
@@ -441,13 +464,10 @@ export default function Home() {
         }
       }
 
-      console.log("PARSED CONTENT LENGTH:", fullContent.length, "PREVIEW:", fullContent.slice(0,100));
-
       setMessages(prev => prev.map(m =>
         m.id === assistantId ? { ...m, content: fullContent || "No content parsed", toolName, toolResult } : m
       ));
 
-      // Final update
       const finalMessages: AppMessage[] = [
         ...newMessages,
         { id: assistantId, role: "assistant", content: fullContent, toolName, toolResult },
@@ -455,16 +475,29 @@ export default function Home() {
       setMessages(finalMessages);
       saveToSession(currentId, finalMessages);
 
-    } catch (err) {
-      console.error("Send error:", err);
-      const errorMsg = err instanceof Error ? err.message : "Something went wrong";
-      setMessages(prev => prev.map(m =>
-        m.id === assistantId
-          ? { ...m, content: `⚠️ Error: ${errorMsg}. Please try again.` }
-          : m
-      ));
+    } catch (err: any) {
+      if (err.name === "AbortError") {
+        console.log("Generation stopped by user.");
+        // Because fullContent is now declared outside try{}, this works perfectly!
+        const stoppedText = fullContent ? fullContent + "\n\n*(Generation stopped)*" : "*(Generation stopped)*";
+        
+        setMessages(prev => prev.map(m =>
+          m.id === assistantId ? { ...m, content: stoppedText } : m
+        ));
+        
+        saveToSession(currentId, [...newMessages, { id: assistantId, role: "assistant", content: stoppedText }]);
+      } else {
+        console.error("Send error:", err);
+        const errorMsg = err instanceof Error ? err.message : "Something went wrong";
+        setMessages(prev => prev.map(m =>
+          m.id === assistantId
+            ? { ...m, content: `⚠️ Error: ${errorMsg}. Please try again.` }
+            : m
+        ));
+      }
     } finally {
       setIsLoading(false);
+      abortControllerRef.current = null;
     }
   }, [input, attachedFiles, isLoading, messages, currentId, saveToSession]);
 
@@ -551,12 +584,20 @@ export default function Home() {
                 title="Attach image"><Paperclip size={16}/></button>
               <input ref={fileInputRef} type="file" accept="image/*" multiple onChange={handleFileChange} className="hidden"/>
               <textarea ref={textareaRef} className="input-textarea" value={input}
-                onChange={e=>setInput(e.target.value)} onKeyDown={handleKeyDown}
+                onChange={e=>setInput(e.target.value)} onKeyDown={handleKeyDown} onPaste={handlePaste}
                 rows={1} placeholder="Ask Athena anything… or attach an image 📎"/>
-              <button type="button" onClick={sendMessage}
-                className={`send-btn ${canSend?"active":"inactive"}`} disabled={!canSend}>
-                <Send size={15}/>
-              </button>
+                
+              {isLoading ? (
+                <button type="button" onClick={stopGeneration}
+                  className="send-btn active" style={{ background: "#ef4444", color: "white" }} title="Stop Generation">
+                  <Square size={13} fill="currentColor" />
+                </button>
+              ) : (
+                <button type="button" onClick={sendMessage}
+                  className={`send-btn ${canSend?"active":"inactive"}`} disabled={!canSend} title="Send Message">
+                  <Send size={15}/>
+                </button>
+              )}
             </div>
             <p style={{ textAlign:"center",fontSize:"0.7rem",color:"var(--text-3)",marginTop:8,display:"flex",alignItems:"center",justifyContent:"center",gap:6 }}>
               <GraduationCap size={10} style={{ opacity:0.5 }}/>
