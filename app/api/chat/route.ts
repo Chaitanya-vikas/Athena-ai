@@ -103,16 +103,19 @@ ${ragContext}
       const text = await analyzeImageWithGemini(imageUrl, queryText, systemPrompt);
       console.log("Gemini response length:", text.length);
 
-      // Return as a simple AI SDK compatible stream
+     // Return as a simple AI SDK compatible stream
       const encoder = new TextEncoder();
       const stream = new ReadableStream({
-        start(controller) {
-          // THE FIX: Slice the text into safe 200-character chunks!
-          // This prevents buffer overflows while perfectly preserving all formatting and newlines.
+        // THE FIX 1: Make this start function 'async'
+        async start(controller) { 
           const chunkSize = 200;
           for (let i = 0; i < text.length; i += chunkSize) {
             const chunk = text.slice(i, i + chunkSize);
             controller.enqueue(encoder.encode(`0:${JSON.stringify(chunk)}\n`));
+            
+            // THE FIX 2: A microscopic delay forces Vercel to flush the network packets 
+            // before the serverless function shuts down!
+            await new Promise(resolve => setTimeout(resolve, 5));
           }
           
           // End of stream markers
