@@ -17,7 +17,7 @@ interface AppMessage {
   id: string;
   role: "user" | "assistant";
   content: string;
-  imageUrls?: string[]; // for display only
+  imageUrls?: string[]; 
   toolName?: string;
   toolResult?: Record<string, unknown>;
 }
@@ -286,30 +286,6 @@ function Sidebar({ sessions,activeId,onSelect,onNew,onDelete,collapsed, onClose 
   );
 }
 
-/* ── Parse AI SDK data stream ────────────────────────────────────────────────── */
-function parseStreamChunk(chunk: string): { text?: string; toolName?: string; toolResult?: Record<string,unknown> } {
-  const lines = chunk.split("\n");
-  let text = "";
-  let toolName: string | undefined;
-  let toolResult: Record<string,unknown> | undefined;
-
-  for (const line of lines) {
-    if (line.startsWith("0:")) {
-      try { text += JSON.parse(line.slice(2)); } catch { /* skip */ }
-    }
-    if (line.startsWith("a:")) {
-      try {
-        const data = JSON.parse(line.slice(2));
-        if (data?.result && data?.toolName) {
-          toolName = data.toolName;
-          toolResult = data.result;
-        }
-      } catch { /* skip */ }
-    }
-  }
-  return { text: text || undefined, toolName, toolResult };
-}
-
 /* ── Build API messages from AppMessages ─────────────────────────────────────── */
 function buildApiMessages(msgs: AppMessage[]) {
   return msgs.map(m => {
@@ -502,26 +478,60 @@ export default function Home() {
       });
 
       if (!res.ok) {
-        const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
-        throw new Error(err.error || `HTTP ${res.status}`);
+        throw new Error(`Server returned ${res.status}`);
       }
 
-      const rawText = await res.text();
+      // THE FIX: True Real-Time Streaming implementation!
+      const reader = res.body?.getReader();
+      if (!reader) throw new Error("No response stream");
+      
+      const decoder = new TextDecoder();
+      let rawBuffer = "";
 
-      for (const line of rawText.split("\n")) {
-        const t = line.trim();
-        if (!t) continue;
-        if (t.startsWith("0:")) {
-          try { const c = JSON.parse(t.slice(2)); if (typeof c === "string") fullContent += c; } catch {/**/}
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        // Decode the incoming chunk and add it to our raw buffer
+        rawBuffer += decoder.decode(value, { stream: true });
+        
+        let tempContent = "";
+        let tempToolName;
+        let tempToolResult;
+
+        // Parse the buffer live
+        const lines = rawBuffer.split('\n');
+        for (const line of lines) {
+          const t = line.trim();
+          if (!t) continue;
+          if (t.startsWith('0:')) {
+            try { tempContent += JSON.parse(t.substring(2)); } catch { /* Ignore incomplete JSON chunks */ }
+          }
+          if (t.startsWith('a:')) {
+            try { 
+              const d = JSON.parse(t.substring(2)); 
+              if (d?.toolName) { tempToolName = d.toolName; tempToolResult = d.result; }
+            } catch {}
+          }
+          if (t.startsWith('3:')) {
+            try { tempContent += "\n\n⚠️ " + JSON.parse(t.substring(2)); } catch {}
+          }
         }
-        if (t.startsWith("a:")) {
-          try { const d = JSON.parse(t.slice(2)); if (d?.toolName) { toolName = d.toolName; toolResult = d.result; } } catch {/**/}
-        }
+
+        fullContent = tempContent;
+        toolName = tempToolName;
+        toolResult = tempToolResult;
+
+        // Update the UI in real time!
+        setMessages(prev => prev.map(m =>
+          m.id === assistantId ? { ...m, content: fullContent, toolName, toolResult } : m
+        ));
       }
 
-      setMessages(prev => prev.map(m =>
-        m.id === assistantId ? { ...m, content: fullContent || "No content parsed", toolName, toolResult } : m
-      ));
+      // If the stream finishes completely empty, explicitly tell the UI it failed so it doesn't hang on "Thinking..."
+      if (!fullContent && !toolName) {
+         fullContent = "⚠️ No response received from the AI. Please try asking again.";
+      }
 
       const finalMessages: AppMessage[] = [
         ...newMessages,
@@ -541,10 +551,10 @@ export default function Home() {
         saveToSession(currentId, [...newMessages, { id: assistantId, role: "assistant", content: stoppedText }]);
       } else {
         console.error("Send error:", err);
-        const errorMsg = err instanceof Error ? err.message : "Something went wrong";
+        const errorMsg = err instanceof Error ? err.message : "Network Error";
         setMessages(prev => prev.map(m =>
           m.id === assistantId
-            ? { ...m, content: `⚠️ Error: ${errorMsg}. Please try again.` }
+            ? { ...m, content: fullContent ? fullContent + `\n\n⚠️ Error: ${errorMsg}` : `⚠️ Error: ${errorMsg}. Please try again.` }
             : m
         ));
       }
