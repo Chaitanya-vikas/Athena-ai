@@ -640,3 +640,76 @@ body { font-family: var(--font-body), 'Segoe UI', sans-serif; background: var(--
   .sidebar { position: fixed; left: 0; top: 0; z-index: 50; }
   .sidebar.collapsed { width: 0; min-width: 0; }
 }
+
+
+/* =========================================
+   📱 MOBILE RESPONSIVENESS & MEDIA QUERIES
+   ========================================= */
+
+@media (max-width: 768px) {
+  /* 1. Sidebar becomes an off-canvas sliding drawer */
+  .sidebar {
+    position: absolute !important;
+    z-index: 50;
+    height: 100%;
+    left: 0;
+    top: 0;
+    box-shadow: 15px 0 40px rgba(0, 0, 0, 0.6);
+    transform: translateX(0);
+    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    width: 280px !important;
+  }
+  
+  .sidebar.collapsed {
+    transform: translateX(-100%);
+    box-shadow: none;
+  }
+
+  /* 2. Topbar adjustments to save vertical space */
+  .topbar {
+    padding: 10px 15px;
+  }
+
+  /* 3. Welcome Screen scaling for smaller phones */
+  .welcome h1 {
+    font-size: 1.75rem !important;
+  }
+  .welcome p {
+    font-size: 0.85rem !important;
+    padding: 0 15px;
+  }
+  .chip {
+    font-size: 0.75rem !important;
+    padding: 6px 10px !important;
+  }
+
+  /* 4. Chat Bubbles get more breathing room */
+  .msg-user > div {
+    max-width: 90% !important; /* Expands user bubble width */
+  }
+  .msg-bot-row {
+    gap: 10px;
+    padding: 0 10px;
+  }
+  .avatar-bot {
+    width: 28px;
+    height: 28px;
+    font-size: 0.8rem;
+  }
+
+  /* 5. Input Area optimizations for mobile keyboards */
+  .input-area {
+    padding: 10px !important;
+    background: var(--bg); /* Prevents overlapping text visibility */
+    padding-bottom: env(safe-area-inset-bottom, 10px) !important; /* iOS safe area */
+  }
+  .input-box {
+    padding: 8px 10px !important;
+    border-radius: 18px !important;
+  }
+  
+  /* CRITICAL: Font size 16px prevents iOS Safari from auto-zooming on input focus */
+  .input-textarea {
+    font-size: 16px !important; 
+  }
+}

@@ -7,7 +7,7 @@ import {
   BookOpen, Brain, Calculator, FlaskConical, GraduationCap,
   Image as ImageIcon, Lightbulb, MessageSquarePlus, Paperclip,
   PanelLeftClose, PanelLeftOpen, Send, Sparkles, Target,
-  Trash2, X, Square, Copy, Check // Added Copy and Check icons
+  Trash2, X, Square, Copy, Check
 } from "lucide-react";
 
 /* ── Types ───────────────────────────────────────────────────────────────────── */
@@ -27,7 +27,7 @@ interface ChatSession {
   messages: AppMessage[];
 }
 
-/* ── Custom Code Block with Copy Button ──────────────────────────────────────── */
+/* ── Custom Code Block with Copy Button & Scroll Fixes ───────────────────────── */
 const CodeBlock = ({ inline, className, children, ...props }: any) => {
   const [copied, setCopied] = useState(false);
   const match = /language-(\w+)/.exec(className || "");
@@ -41,8 +41,8 @@ const CodeBlock = ({ inline, className, children, ...props }: any) => {
 
   if (!inline && match) {
     return (
-      <div className="my-4 rounded-xl overflow-hidden" style={{ border: "1px solid rgba(255,255,255,0.1)", background: "#0d0d12" }}>
-        <div className="flex items-center justify-between px-4 py-2" style={{ background: "rgba(255,255,255,0.05)", borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
+      <div className="my-4 rounded-xl overflow-hidden flex flex-col" style={{ border: "1px solid rgba(255,255,255,0.1)", background: "#0d0d12", width: "100%", maxWidth: "100%" }}>
+        <div className="flex items-center justify-between px-4 py-2 shrink-0" style={{ background: "rgba(255,255,255,0.05)", borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
           <span className="text-xs text-white/50 font-mono uppercase tracking-wider">{language}</span>
           <button
             onClick={handleCopy}
@@ -52,8 +52,8 @@ const CodeBlock = ({ inline, className, children, ...props }: any) => {
             {copied ? <span className="text-teal-400">Copied!</span> : <span>Copy code</span>}
           </button>
         </div>
-        <div className="p-4 overflow-x-auto text-sm font-mono text-gray-300">
-          <code className={className} {...props}>
+        <div className="p-4 overflow-x-auto overflow-y-auto max-h-[450px] text-[0.85rem] font-mono text-gray-300" style={{ wordBreak: "normal", overflowWrap: "normal" }}>
+          <code className={className} style={{ whiteSpace: "pre" }} {...props}>
             {children}
           </code>
         </div>
@@ -61,9 +61,8 @@ const CodeBlock = ({ inline, className, children, ...props }: any) => {
     );
   }
 
-  // Standard inline code highlighting
   return (
-    <code className="bg-white/10 px-1.5 py-0.5 rounded text-[0.85em] font-mono text-purple-300" {...props}>
+    <code className="bg-white/10 px-1.5 py-0.5 rounded text-[0.85em] font-mono text-purple-300" style={{ wordBreak: "break-word" }} {...props}>
       {children}
     </code>
   );
@@ -83,9 +82,7 @@ const MdRenderer = memo(function MdRenderer({ content }: { content: string }) {
     <div className="prose-grok">
       <ReactMarkdown 
         remarkPlugins={[remarkGfm]}
-        components={{
-          code: CodeBlock as any // Overrides default code rendering to use our copyable block
-        }}
+        components={{ code: CodeBlock as any }}
       >
         {rendered}
       </ReactMarkdown>
@@ -160,7 +157,7 @@ function Message({ msg }: { msg: AppMessage }) {
             <img src={url} alt="attachment" className="max-w-full object-contain"/>
           </div>
         ))}
-        {msg.content && <div className="msg-user-bubble">{msg.content}</div>}
+        {msg.content && <div className="msg-user-bubble" style={{ width: "max-content", minWidth: "min-content", wordBreak: "normal", overflowWrap: "anywhere" }}>{msg.content}</div>}
       </div>
       <div className="avatar-user">U</div>
     </div>
@@ -233,8 +230,8 @@ function WelcomeScreen({ onSuggest }:{ onSuggest:(t:string)=>void }) {
 }
 
 /* ── Sidebar ─────────────────────────────────────────────────────────────────── */
-function Sidebar({ sessions,activeId,onSelect,onNew,onDelete,collapsed }:{
-  sessions:ChatSession[];activeId:string;onSelect:(id:string)=>void;onNew:()=>void;onDelete:(id:string)=>void;collapsed:boolean;
+function Sidebar({ sessions,activeId,onSelect,onNew,onDelete,collapsed, onClose }:{
+  sessions:ChatSession[];activeId:string;onSelect:(id:string)=>void;onNew:()=>void;onDelete:(id:string)=>void;collapsed:boolean; onClose:()=>void;
 }) {
   const now=Date.now(),DAY=86400000;
   const sorted=[...sessions].sort((a,b)=>b.createdAt-a.createdAt);
@@ -244,19 +241,25 @@ function Sidebar({ sessions,activeId,onSelect,onNew,onDelete,collapsed }:{
     {label:"This Week", items:sorted.filter(s=>now-s.createdAt>=2*DAY&&now-s.createdAt<7*DAY)},
     {label:"Older",     items:sorted.filter(s=>now-s.createdAt>=7*DAY)},
   ].filter(g=>g.items.length>0);
+  
   return (
     <aside className={`sidebar ${collapsed?"collapsed":""}`}>
       <div style={{ padding:"14px 12px 10px",borderBottom:"1px solid var(--border)",flexShrink:0 }}>
-        <div className="flex items-center gap-2.5 mb-3">
-          <div style={{ width:32,height:32,borderRadius:9,background:"linear-gradient(135deg,#1c1c2e,#2a2a42)",border:"1px solid rgba(240,192,64,0.3)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:"1rem" }}>🦉</div>
-          <div>
-            <div style={{ fontFamily:"var(--font-display),Georgia,serif",fontSize:"1rem",fontWeight:600,lineHeight:1 }}>
-              <span style={{ background:"linear-gradient(135deg,#f0c040,#fde68a)",WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent",backgroundClip:"text" }}>Athena</span>
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-2.5">
+            <div style={{ width:32,height:32,borderRadius:9,background:"linear-gradient(135deg,#1c1c2e,#2a2a42)",border:"1px solid rgba(240,192,64,0.3)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:"1rem" }}>🦉</div>
+            <div>
+              <div style={{ fontFamily:"var(--font-display),Georgia,serif",fontSize:"1rem",fontWeight:600,lineHeight:1 }}>
+                <span style={{ background:"linear-gradient(135deg,#f0c040,#fde68a)",WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent",backgroundClip:"text" }}>Athena</span>
+              </div>
+              <div style={{ fontSize:"0.65rem",color:"var(--text-3)",letterSpacing:"0.06em" }}>AI Learning</div>
             </div>
-            <div style={{ fontSize:"0.65rem",color:"var(--text-3)",letterSpacing:"0.06em" }}>AI Learning</div>
           </div>
+          <button className="icon-btn sm:hidden" onClick={onClose} style={{ display: 'flex' }}>
+            <X size={20} />
+          </button>
         </div>
-        <button className="new-chat-btn" onClick={onNew}><MessageSquarePlus size={15}/><span>New Chat</span></button>
+        <button className="new-chat-btn" onClick={() => { onNew(); onClose(); }}><MessageSquarePlus size={15}/><span>New Chat</span></button>
       </div>
       <div className="sidebar-scroll">
         {groups.length===0&&<p style={{ color:"var(--text-3)",fontSize:"0.8125rem",textAlign:"center",padding:"24px 10px",lineHeight:1.6 }}>No chats yet.<br/>Start a conversation!</p>}
@@ -264,7 +267,7 @@ function Sidebar({ sessions,activeId,onSelect,onNew,onDelete,collapsed }:{
           <div key={label}>
             <div className="date-group">{label}</div>
             {items.map(s=>(
-              <div key={s.id} className={`chat-item ${s.id===activeId?"active":""}`} onClick={()=>onSelect(s.id)}>
+              <div key={s.id} className={`chat-item ${s.id===activeId?"active":""}`} onClick={() => { onSelect(s.id); onClose(); }}>
                 <MessageSquarePlus size={13} style={{ color:"var(--text-3)",flexShrink:0 }}/>
                 <span style={{ flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontSize:"0.8125rem",color:s.id===activeId?"#c4b5fd":"var(--text-2)" }}>{s.title}</span>
                 <button className="delete-btn icon-btn" style={{ width:22,height:22,flexShrink:0 }} onClick={e=>{e.stopPropagation();onDelete(s.id);}}><Trash2 size={11} style={{ color:"var(--text-3)" }}/></button>
@@ -294,7 +297,6 @@ function parseStreamChunk(chunk: string): { text?: string; toolName?: string; to
     if (line.startsWith("0:")) {
       try { text += JSON.parse(line.slice(2)); } catch { /* skip */ }
     }
-    // Tool result: line starts with 'a:' in AI SDK 4
     if (line.startsWith("a:")) {
       try {
         const data = JSON.parse(line.slice(2));
@@ -339,6 +341,12 @@ export default function Home() {
   const fileInputRef   = useRef<HTMLInputElement>(null);
   const textareaRef    = useRef<HTMLTextAreaElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    if (typeof window !== "undefined" && window.innerWidth < 768) {
+      setSidebarOpen(false);
+    }
+  }, []);
 
   useEffect(() => {
     try {
@@ -561,7 +569,15 @@ export default function Home() {
       onDragLeave={()=>setIsDragging(false)}
       onDrop={handleDrop}
     >
-      <Sidebar sessions={sessions} activeId={currentId} onSelect={selectSession} onNew={createNewChat} onDelete={deleteSession} collapsed={!sidebarOpen}/>
+      <Sidebar sessions={sessions} activeId={currentId} onSelect={selectSession} onNew={createNewChat} onDelete={deleteSession} collapsed={!sidebarOpen} onClose={() => setSidebarOpen(false)} />
+
+      {sidebarOpen && (
+        <div 
+          className="fixed inset-0 z-40 sm:hidden" 
+          style={{ background: "rgba(0,0,0,0.6)", backdropFilter: "blur(4px)" }}
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
 
       <div className="chat-area mesh-bg">
         <div className="topbar">

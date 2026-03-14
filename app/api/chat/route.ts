@@ -29,7 +29,8 @@ async function analyzeImageWithGemini(
         { inline_data: { mime_type: mimeType, data: base64Data } },
       ],
     }],
-    generationConfig: { maxOutputTokens: 8192, temperature: 0.2 },
+    // Added temperature and topP to prevent Gemini from getting stuck in repetition loops
+    generationConfig: { maxOutputTokens: 8192, temperature: 0.4, topP: 0.95 },
   };
 
   const res = await fetch(url, {
@@ -71,28 +72,37 @@ export async function POST(req: Request) {
 
     const ragContext = await retrieveContext(queryText, 3);
 
-    // ─── UPDATED PROMPT: Forces code to be written FIRST ───────────────────
-    const systemPrompt = `You are Athena — a world-class AI programming and educational tutor.
+    // ─── UPDATED PROMPT: Dual-Persona Routing ───────────────────────────────
+    const systemPrompt = `You are Athena — an elite, dual-expert AI. Depending on the user's prompt, you seamlessly switch between two personas: a **Master Academic Tutor** (for school subjects) and a **World-Class Senior Software Engineer** (for technology and coding).
 
 ## KNOWLEDGE BASE CONTEXT:
 ${ragContext}
 
-## RESPONSE GUIDELINES (CRITICAL):
+## PERSONA ROUTING & RESPONSE GUIDELINES (CRITICAL):
 
-1. **For simple greetings or casual chat (e.g., "hello", "how are you"):**
-   - Be a normal, warm tutor. Respond naturally in 1-2 sentences. 
-   - DO NOT use the structured format below. DO NOT generate code unless asked.
+### 1. Casual Chat & Greetings ("hello", "how are you")
+- **Tone:** Warm, professional, and concise. 
+- **Action:** Respond naturally in 1-2 sentences. Ask how you can help them learn today.
 
-2. **For educational questions, coding tasks, or image analysis, you MUST use this structure:**
-   - **The Core Analysis:** Start with a clear, 1-2 sentence summary of the concept or solution.
-   - **Code Generation:** If requested, provide full, clean code in Markdown blocks immediately.
-   - **Step-by-Step Logic:** Briefly explain your thought process or math steps.
-   - **Key Takeaway:** End with "**Key Takeaway:**" followed by one bold sentence summarizing the concept.
+### 2. The Academic Tutor Mode (Math, Science, History, Literature, etc.)
+- **Tone:** Patient, encouraging, highly structured, and academic.
+- **Format:** Use "First Principles" thinking. Break complex topics into digestible bullet points, analogies, and step-by-step logical progressions.
+- **ABSOLUTE STRICT RULE:** DO NOT write Python, JavaScript, C++, HTML, or any computer code whatsoever unless the user explicitly asks for a script. If they ask about limits in Calculus, teach the math concept purely with mathematical notation and text.
+- **Closing:** End with "**Key Takeaway:**" followed by a single, bold sentence summarizing the core academic concept.
 
-## IMAGE ANALYSIS RULES:
-- If the image contains code, transcribe it perfectly first, then explain or fix it.
-- If the image is a UI/Website design, break down the component structure before writing code.
-- If the image is an error message, state the root cause clearly before providing the fix.`;
+### 3. The Tech Genius Mode (Coding, Architecture, Tech Stacks, UI/UX)
+- **Tone:** Direct, industry-standard, brilliant, and highly efficient. You write production-grade code.
+- **Structure:** You MUST use the following exact structure:
+  - **The Core Analysis:** Start with a sharp, 1-2 sentence architectural summary or root-cause analysis.
+  - **Code Generation:** IMMEDIATELY provide the full, clean, highly-optimized code in Markdown blocks. Include brief inline comments for complex logic. Do not truncate.
+  - **Step-by-Step Logic:** Briefly explain the "why" behind your code (e.g., time complexity, design patterns used, or CSS structure).
+  - **Closing:** End with "**Key Takeaway:**" followed by a single, bold sentence summarizing the technical concept.
+
+## MULTIMODAL & IMAGE ANALYSIS RULES:
+- **If the image contains code/errors:** Transcribe the error perfectly, state the exact root cause, and immediately provide the fixed code.
+- **If the image is a UI/Website design:** Break down the DOM/component structure logically before writing the HTML/CSS/React code.
+- **If the image is a Math/Science diagram:** Adopt the **Academic Tutor Mode** to explain the diagram comprehensively without writing code.`;
+
     if (hasImage) {
       console.log("Using Gemini REST API directly for vision");
 
@@ -106,14 +116,13 @@ ${ragContext}
      // Return as a simple AI SDK compatible stream
       const encoder = new TextEncoder();
       const stream = new ReadableStream({
-        // THE FIX 1: Make this start function 'async'
-        async start(controller) { 
+        async start(controller) {
           const chunkSize = 200;
           for (let i = 0; i < text.length; i += chunkSize) {
             const chunk = text.slice(i, i + chunkSize);
             controller.enqueue(encoder.encode(`0:${JSON.stringify(chunk)}\n`));
             
-            // THE FIX 2: A microscopic delay forces Vercel to flush the network packets 
+            // A microscopic delay forces Vercel to flush the network packets
             // before the serverless function shuts down!
             await new Promise(resolve => setTimeout(resolve, 5));
           }
@@ -162,43 +171,44 @@ ${ragContext}
               // eslint-disable-next-line no-new-func
               const result = Function('"use strict"; const Math = globalThis.Math; return (' + safe + ")")();
               if (typeof result !== "number" || !isFinite(result)) return { success: false, error: "Invalid", expression };
-              return { success: true, expression, result: Number.isInteger(result) ? result : parseFloat(result.toFixed(8)) };
-            } catch { return { success: false, error: "Parse error", expression }; }
+              return { success: true, result, expression };
+            } catch (error: any) {
+              return { success: false, error: error.message || "Calculation failed", expression };
+            }
           },
         }),
         generate_quiz: tool({
-          description: "Generate a multiple-choice quiz.",
-          parameters: z.object({ topic: z.string(), difficulty: z.enum(["beginner","intermediate","advanced"]), num_questions: z.number().min(1).max(5) }),
-          execute: async ({ topic, difficulty, num_questions }) => ({ status:"generating", topic, difficulty, num_questions, instruction: `Generate ${num_questions} ${difficulty}-level MCQs about "${topic}".` }),
-        }),
-        get_study_tips: tool({
-          description: "Provide study tips for a subject.",
-          parameters: z.object({ subject: z.string(), challenge: z.string().optional() }),
-          execute: async ({ subject, challenge }) => {
-            const s = subject.toLowerCase();
-            const db: Record<string,string[]> = {
-              math: ["Work 10+ practice problems per topic","Keep an error log","Struggle 5 mins before checking solutions","Write formulas from memory"],
-              physics: ["Draw free-body diagrams first","Identify knowns, unknowns, equation","Use dimensional analysis"],
-              chemistry: ["Memorize polyatomic ions first","Balance equations daily","Start stoichiometry with balanced equation"],
-              biology: ["Draw diagrams from memory","Learn roots: cyto=cell, phago=eat","Narrate processes as stories"],
-              programming: ["Code daily — 20 mins compounds fast","Build projects immediately","Read errors word by word"],
-              history: ["Build cause-effect chains","Create cross-region timelines","Ask why and what changed"],
-            };
-            const key = Object.keys(db).find(k=>s.includes(k)) ?? "default";
-            const tips = db[key] ?? ["Spaced repetition: 1→3→7→30 days","Active recall: test yourself","Feynman: explain to a 12-year-old","Pomodoro: 25-min blocks"];
-            return { subject, challenge: challenge ?? "general", tips, reminder: "30 min daily beats 3-hour cramming." };
+          description: "Generate a quiz based on a topic.",
+          parameters: z.object({
+            topic: z.string(),
+            difficulty: z.enum(["beginner", "intermediate", "advanced"]),
+            num_questions: z.number().min(1).max(10),
+          }),
+          execute: async ({ topic, difficulty, num_questions }) => {
+            return { topic, difficulty, num_questions, success: true };
           },
         }),
+        get_study_tips: tool({
+          description: "Provide study tips for a specific subject.",
+          parameters: z.object({ subject: z.string() }),
+          execute: async ({ subject }) => {
+            return {
+              subject,
+              tips: [
+                "Use spaced repetition to memorize facts.",
+                "Try the Feynman Technique: teach it to someone else.",
+                "Take practice tests to find your weak spots."
+              ],
+              reminder: "Consistency is more important than cramming!"
+            };
+          },
+        })
       },
-      maxSteps: 3,
     });
-    return result.toDataStreamResponse();
 
+    return result.toDataStreamResponse();
   } catch (error) {
-    console.error("=== Athena Error ===", error);
-    return new Response(
-      JSON.stringify({ error: error instanceof Error ? error.message : String(error) }),
-      { status: 500, headers: { "Content-Type": "application/json" } }
-    );
+    console.error("API Error:", error);
+    return new Response(JSON.stringify({ error: "Internal Server Error" }), { status: 500 });
   }
 }
