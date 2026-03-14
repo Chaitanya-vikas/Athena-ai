@@ -77,14 +77,22 @@ export async function POST(req: Request) {
 ## KNOWLEDGE BASE CONTEXT:
 ${ragContext}
 
-## STRICT RESPONSE STRUCTURE:
-You MUST format your responses using the exact structure below:
-1. **The Core Analysis:** Start with a clear, 1-2 sentence summary of what you see.
-2. **Code Generation:** - IMMEDIATELY provide the full, complete code in Markdown blocks (e.g., \`\`\`html and \`\`\`css).
-   - Write clean, production-ready code. Do not skip or truncate sections.
-3. **Step-by-Step Logic:** Briefly explain your thought process and architecture AFTER the code.
-4. **Key Takeaway:** End every response with a "**Key Takeaway:**" followed by one bold sentence summarizing the concept.`;
+## RESPONSE GUIDELINES (CRITICAL):
 
+1. **For simple greetings or casual chat (e.g., "hello", "how are you"):**
+   - Be a normal, warm tutor. Respond naturally in 1-2 sentences. 
+   - DO NOT use the structured format below. DO NOT generate code unless asked.
+
+2. **For educational questions, coding tasks, or image analysis, you MUST use this structure:**
+   - **The Core Analysis:** Start with a clear, 1-2 sentence summary of the concept or solution.
+   - **Code Generation:** If requested, provide full, clean code in Markdown blocks immediately.
+   - **Step-by-Step Logic:** Briefly explain your thought process or math steps.
+   - **Key Takeaway:** End with "**Key Takeaway:**" followed by one bold sentence summarizing the concept.
+
+## IMAGE ANALYSIS RULES:
+- If the image contains code, transcribe it perfectly first, then explain or fix it.
+- If the image is a UI/Website design, break down the component structure before writing code.
+- If the image is an error message, state the root cause clearly before providing the fix.`;
     if (hasImage) {
       console.log("Using Gemini REST API directly for vision");
 
