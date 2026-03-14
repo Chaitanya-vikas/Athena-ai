@@ -7,7 +7,7 @@ import {
   BookOpen, Brain, Calculator, FlaskConical, GraduationCap,
   Image as ImageIcon, Lightbulb, MessageSquarePlus, Paperclip,
   PanelLeftClose, PanelLeftOpen, Send, Sparkles, Target,
-  Trash2, X, Square
+  Trash2, X, Square, Copy, Check // Added Copy and Check icons
 } from "lucide-react";
 
 /* ── Types ───────────────────────────────────────────────────────────────────── */
@@ -27,6 +27,48 @@ interface ChatSession {
   messages: AppMessage[];
 }
 
+/* ── Custom Code Block with Copy Button ──────────────────────────────────────── */
+const CodeBlock = ({ inline, className, children, ...props }: any) => {
+  const [copied, setCopied] = useState(false);
+  const match = /language-(\w+)/.exec(className || "");
+  const language = match && match[1] ? match[1] : "";
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(String(children).replace(/\n$/, ""));
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  if (!inline && match) {
+    return (
+      <div className="my-4 rounded-xl overflow-hidden" style={{ border: "1px solid rgba(255,255,255,0.1)", background: "#0d0d12" }}>
+        <div className="flex items-center justify-between px-4 py-2" style={{ background: "rgba(255,255,255,0.05)", borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
+          <span className="text-xs text-white/50 font-mono uppercase tracking-wider">{language}</span>
+          <button
+            onClick={handleCopy}
+            className="flex items-center gap-1.5 text-xs text-white/50 hover:text-white transition-colors"
+          >
+            {copied ? <Check size={14} className="text-teal-400" /> : <Copy size={14} />}
+            {copied ? <span className="text-teal-400">Copied!</span> : <span>Copy code</span>}
+          </button>
+        </div>
+        <div className="p-4 overflow-x-auto text-sm font-mono text-gray-300">
+          <code className={className} {...props}>
+            {children}
+          </code>
+        </div>
+      </div>
+    );
+  }
+
+  // Standard inline code highlighting
+  return (
+    <code className="bg-white/10 px-1.5 py-0.5 rounded text-[0.85em] font-mono text-purple-300" {...props}>
+      {children}
+    </code>
+  );
+};
+
 /* ── Debounced Markdown ──────────────────────────────────────────────────────── */
 const MdRenderer = memo(function MdRenderer({ content }: { content: string }) {
   const [rendered, setRendered] = useState(content);
@@ -36,7 +78,19 @@ const MdRenderer = memo(function MdRenderer({ content }: { content: string }) {
     t.current = setTimeout(() => setRendered(content), 80);
     return () => { if (t.current) clearTimeout(t.current); };
   }, [content]);
-  return <div className="prose-grok"><ReactMarkdown remarkPlugins={[remarkGfm]}>{rendered}</ReactMarkdown></div>;
+  
+  return (
+    <div className="prose-grok">
+      <ReactMarkdown 
+        remarkPlugins={[remarkGfm]}
+        components={{
+          code: CodeBlock as any // Overrides default code rendering to use our copyable block
+        }}
+      >
+        {rendered}
+      </ReactMarkdown>
+    </div>
+  );
 });
 
 /* ── Suggestions ─────────────────────────────────────────────────────────────── */
@@ -120,7 +174,7 @@ function Message({ msg }: { msg: AppMessage }) {
           <ToolCard toolName={msg.toolName} result={msg.toolResult} />
         )}
         {msg.content && (
-          <div className="msg-bot-bubble">
+          <div className="msg-bot-bubble" style={{ width: "100%", overflowX: "hidden" }}>
             <MdRenderer content={msg.content}/>
           </div>
         )}
@@ -258,7 +312,6 @@ function parseStreamChunk(chunk: string): { text?: string; toolName?: string; to
 function buildApiMessages(msgs: AppMessage[]) {
   return msgs.map(m => {
     if (m.imageUrls && m.imageUrls.length > 0) {
-      // Multimodal message — build content array
       const parts: unknown[] = [];
       if (m.content) parts.push({ type: "text", text: m.content });
       for (const url of m.imageUrls) {
@@ -287,7 +340,6 @@ export default function Home() {
   const textareaRef    = useRef<HTMLTextAreaElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
 
-  // Load sessions
   useEffect(() => {
     try {
       const saved = localStorage.getItem("athena_sessions");
@@ -296,17 +348,14 @@ export default function Home() {
     setHydrated(true);
   }, []);
 
-  // Save sessions
   useEffect(() => {
     if (!hydrated) return;
     try { localStorage.setItem("athena_sessions", JSON.stringify(sessions)); }
     catch { /* ignore */ }
   }, [sessions, hydrated]);
 
-  // Auto-scroll
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior:"smooth" }); }, [messages, isLoading]);
 
-  // Auto-resize textarea
   useEffect(() => {
     const ta = textareaRef.current;
     if (!ta) return;
@@ -317,7 +366,6 @@ export default function Home() {
   const canSend = !isLoading && (input.trim().length > 0 || attachedFiles.length > 0);
   const activeSession = sessions.find(s => s.id === currentId) ?? null;
 
-  // Save current messages to session
   const saveToSession = useCallback((id: string, msgs: AppMessage[]) => {
     setSessions(prev => {
       const exists = prev.find(s => s.id === id);
@@ -431,7 +479,6 @@ export default function Home() {
     const assistantMsg: AppMessage = { id: assistantId, role: "assistant", content: "" };
     setMessages([...newMessages, assistantMsg]);
 
-    // THE FIX: Define these variables outside the try block so they are accessible in the catch block!
     let fullContent = "";
     let toolName: string | undefined;
     let toolResult: Record<string,unknown> | undefined;
@@ -478,13 +525,11 @@ export default function Home() {
     } catch (err: any) {
       if (err.name === "AbortError") {
         console.log("Generation stopped by user.");
-        // Because fullContent is now declared outside try{}, this works perfectly!
         const stoppedText = fullContent ? fullContent + "\n\n*(Generation stopped)*" : "*(Generation stopped)*";
         
         setMessages(prev => prev.map(m =>
           m.id === assistantId ? { ...m, content: stoppedText } : m
         ));
-        
         saveToSession(currentId, [...newMessages, { id: assistantId, role: "assistant", content: stoppedText }]);
       } else {
         console.error("Send error:", err);
