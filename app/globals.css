@@ -176,7 +176,8 @@ body { font-family: var(--font-body), 'Segoe UI', sans-serif; background: var(--
   gap: 10px;
 }
 .msg-user-bubble {
-  max-width: 72%;
+  max-width: 100%; /* Parent div already handles the 72% limit */
+  width: fit-content; /* THIS is the magic rule that stops the vertical squish */
   background: linear-gradient(135deg, #6d28d9, #5b21b6);
   color: white;
   padding: 12px 16px;
@@ -185,7 +186,8 @@ body { font-family: var(--font-body), 'Segoe UI', sans-serif; background: var(--
   line-height: 1.65;
   box-shadow: 0 4px 20px rgba(109,40,217,0.25);
   white-space: pre-wrap;
-  word-break: break-word;
+  word-wrap: break-word;
+  word-break: normal;
 }
 
 .msg-bot-row {
