@@ -5,7 +5,7 @@
 [![Vercel AI SDK](https://img.shields.io/badge/Vercel-AI_SDK-black?style=flat&logo=vercel)](https://sdk.vercel.ai/)
 [![Groq](https://img.shields.io/badge/Groq-Llama_3.3-f55036?style=flat)](https://groq.com/)
 
-**🚀 Live Deployment:** [👉 View the live application on Vercel here](athena-633pun84v-chaitanya-vikas-projects.vercel.app)
+**🚀 Live Deployment:** [👉 View the live application on Vercel here](athena-a1b318ht9-chaitanya-vikas-projects.vercel.app)
 Athena is a production-ready, multimodal educational chatbot. Developed as a submission for the **Multimodal Chatbot with RAG** assessment, it is specifically tailored to the **Ed-Tech domain** to assist students with complex problem-solving, math evaluations, and contextual study techniques.
 
 ---
