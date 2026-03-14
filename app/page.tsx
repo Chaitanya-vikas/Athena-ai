@@ -76,7 +76,7 @@ function ToolCard({ toolName, result }: { toolName: string; result: Record<strin
       </div>
     </div>
   );
-  if (toolName === "get_study_tips") return (
+if (toolName === "get_study_tips") return (
     <div className="tool-card" style={{ background:"rgba(45,212,191,0.06)", border:"1px solid rgba(45,212,191,0.18)" }}>
       <div className="tool-header" style={{ color:"var(--teal)", borderColor:"rgba(45,212,191,0.12)" }}><Lightbulb size={12}/> Study Tips — {String(result.subject)}</div>
       <div className="tool-body space-y-2">
@@ -86,7 +86,8 @@ function ToolCard({ toolName, result }: { toolName: string; result: Record<strin
             <p style={{ color:"var(--text)",fontSize:"0.875rem",lineHeight:1.6,margin:0 }}>{String(tip)}</p>
           </div>
         ))}
-        {result.reminder && <p style={{ color:"var(--text-2)",fontSize:"0.8125rem",fontStyle:"italic",marginTop:10,paddingTop:10,borderTop:"1px solid rgba(45,212,191,0.1)" }}>✦ {String(result.reminder)}</p>}
+        {/* THE FIX: Replaced '&&' with a type-safe ternary '? : null' */}
+        {result.reminder ? <p style={{ color:"var(--text-2)",fontSize:"0.8125rem",fontStyle:"italic",marginTop:10,paddingTop:10,borderTop:"1px solid rgba(45,212,191,0.1)" }}>✦ {String(result.reminder)}</p> : null}
       </div>
     </div>
   );
