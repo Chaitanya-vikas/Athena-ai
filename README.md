@@ -1,245 +1,103 @@
-# 🎓 EduBot — Multimodal AI Learning Assistant
+# 🦉 Athena: Multimodal AI Learning Intelligence
 
-A production-ready Ed-Tech chatbot built with **Next.js 15**, **Vercel AI SDK**, and **Groq** featuring:
+[![Next.js](https://img.shields.io/badge/Next.js-15-black?style=flat&logo=next.js)](https://nextjs.org/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-Ready-blue?style=flat&logo=typescript)](https://www.typescriptlang.org/)
+[![Vercel AI SDK](https://img.shields.io/badge/Vercel-AI_SDK-black?style=flat&logo=vercel)](https://sdk.vercel.ai/)
+[![Groq](https://img.shields.io/badge/Groq-Llama_3.3-f55036?style=flat)](https://groq.com/)
 
-- 🖼️ **Multimodal support** — chat with text or upload images (diagrams, textbook pages, handwritten problems)
-- 🔍 **RAG (Retrieval-Augmented Generation)** — TF-IDF powered semantic search over a built-in Ed-Tech knowledge base
-- 🛠️ **Tool Calling** — calculator, quiz generator, and personalized study tips
-- ⚡ **Streaming responses** — real-time LLM output via Vercel AI SDK
-- 🚀 **Vercel-ready** — one-click deploy
-
----
-
-## 🌐 Live Demo
-
-👉 **[your-app.vercel.app](https://your-app.vercel.app)** ← replace after deployment
+**🚀 Live Deployment:** [👉 View the live application on Vercel here](athena-633pun84v-chaitanya-vikas-projects.vercel.app)
+Athena is a production-ready, multimodal educational chatbot. Developed as a submission for the **Multimodal Chatbot with RAG** assessment, it is specifically tailored to the **Ed-Tech domain** to assist students with complex problem-solving, math evaluations, and contextual study techniques.
 
 ---
 
-## ✨ Features
+## 💻 Tech Stack & Tooling
 
-| Feature | Details |
-|---------|---------|
-| **Text Chat** | Conversational Q&A across all academic subjects |
-| **Image Analysis** | Upload images → Groq Vision model analyzes diagrams, equations, charts |
-| **RAG Knowledge Base** | 20+ curated Ed-Tech documents: Study Techniques, Math, Biology, Chemistry, Physics, CS, History, Writing |
-| **Calculator Tool** | Evaluates math expressions with step-by-step formatting |
-| **Quiz Generator** | Creates 1-5 multiple choice questions, any topic, any difficulty |
-| **Study Tips Tool** | Subject-specific, evidence-based learning strategies |
-| **Drag & Drop Images** | Drop images anywhere on the page to attach them |
-| **Keyboard shortcuts** | Enter to send, Shift+Enter for new line |
+I intentionally selected a modern, high-performance stack optimized for serverless edge deployment and real-time streaming.
 
----
-
-## 🛠️ Tech Stack
-
-| Layer | Technology |
-|-------|-----------|
-| Framework | [Next.js 15](https://nextjs.org) (App Router) |
-| AI SDK | [Vercel AI SDK 4.x](https://sdk.vercel.ai) |
-| LLM Provider | [Groq](https://groq.com) — `llama-3.2-11b-vision-instruct` |
-| RAG | Custom TF-IDF cosine similarity (no external DB needed) |
-| Styling | Tailwind CSS |
-| Deployment | [Vercel](https://vercel.com) |
+| Category | Technologies Used |
+| :--- | :--- |
+| **Frontend** | React 19, Next.js 15 (App Router), Tailwind CSS, Custom CSS Mesh Gradients, Lucide Icons |
+| **Backend** | Next.js API Routes (Serverless), TypeScript |
+| **AI Orchestration**| Vercel AI SDK (Core & React), custom REST integrations |
+| **LLMs** | **Groq** (`llama-3.3-70b-versatile`) for text/tools, **Gemini** (`gemini-2.5-flash`) for vision |
+| **RAG Engine** | Custom-built **TF-IDF Semantic Search** (Zero external vector DB dependencies) |
+| **Deployment** | Vercel |
 
 ---
 
-## 🚀 Quick Start (Local)
+## 📋 Assignment Requirements Achieved
+
+This project fulfills and exceeds all core and optional requirements of the assessment:
+
+- ✅ **Multimodal Inputs (Text & Image):** Supports conversational Q&A and image analysis (e.g., uploading math problems, textbook diagrams, or UI screenshots).
+- ✅ **Retrieval-Augmented Generation (RAG):** Implements a custom-built, in-memory TF-IDF semantic search engine to ground the AI in a curated Ed-Tech knowledge base.
+- ✅ **Tool Calling (Optional):** The AI can dynamically invoke tools for specific actions: `calculate` (math evaluation), `generate_quiz` (topic-based MCQs), and `get_study_tips`.
+- ✅ **Generative UI (Optional):** Intercepts tool-calling streams to render beautiful, interactive React components (Tool Cards) directly in the chat UI.
+- ✅ **Ed-Tech Domain:** System prompts and knowledge bases are fine-tuned for educational assistance.
+
+---
+
+## 🧠 System Architecture: "Split-Brain" Routing
+
+To provide the highest quality responses while avoiding standard framework payload limitations (like Next.js 4MB payload limits) and LLM token timeouts, Athena utilizes a dynamic, custom-engineered routing architecture:
+
+1. **The Text & Tool Path (Groq):** Text-only queries are routed through the **Vercel AI SDK** to Groq. This ensures lightning-fast reasoning, RAG context injection, and highly structured tool calling.
+2. **The Vision Path (Gemini):** Image queries bypass standard SDK wrappers to prevent memory crashes. Images are compressed client-side via a native HTML5 `<canvas>`, converted to Base64, and sent via a direct REST integration to Google Gemini. The server then perfectly mimics the Vercel AI SDK stream format (`0:"chunk"\n`) to pipe the response back to the frontend UI.
+3. **History Sanitization:** Multi-turn conversations are automatically sanitized. When switching from an image prompt to a text prompt, previous Base64 image data is stripped from the context window to prevent text-only models (Groq) from crashing.
+
+---
+
+## 🚀 Local Setup Instructions
+
+Follow these steps to run Athena on your local machine.
 
 ### 1. Clone the repository
-
-```bash
-git clone https://github.com/YOUR_USERNAME/edubot.git
-cd edubot
-```
+\`\`\`bash
+git clone https://github.com/Chaitanya-vikas/Athena-ai
+cd athena-edubot
+\`\`\`
 
 ### 2. Install dependencies
-
-```bash
+\`\`\`bash
 npm install
-```
+\`\`\`
 
-### 3. Set up environment variables
-
-```bash
-cp .env.example .env.local
-```
-
-Edit `.env.local` and add your Groq API key:
-
-```env
+### 3. Configure Environment Variables
+Create a \`.env.local\` file in the root directory and add your API keys:
+\`\`\`env
+# Get your free key at: https://console.groq.com/
 GROQ_API_KEY=your_groq_api_key_here
-```
 
-> 🔑 Get a **free** Groq API key at [console.groq.com](https://console.groq.com)
+# Get your free key at: https://aistudio.google.com/
+GOOGLE_GENERATIVE_AI_API_KEY=your_gemini_api_key_here
+\`\`\`
 
 ### 4. Run the development server
-
-```bash
+\`\`\`bash
 npm run dev
-```
-
-Open [http://localhost:3000](http://localhost:3000) in your browser.
-
----
-
-## ☁️ Deploy to Vercel
-
-### Option A: One-click deploy
-
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/YOUR_USERNAME/edubot)
-
-### Option B: Manual deploy via Vercel CLI
-
-```bash
-npm install -g vercel
-vercel login
-vercel --prod
-```
-
-### Option C: Connect GitHub repo
-
-1. Push code to GitHub
-2. Go to [vercel.com/new](https://vercel.com/new)
-3. Import your repository
-4. Add environment variable: `GROQ_API_KEY` = your key
-5. Click **Deploy**
+\`\`\`
+Open [http://localhost:3000](http://localhost:3000) in your browser to start chatting!
 
 ---
 
-## 📁 Project Structure
+## 🎯 Evaluation Guide (How to test)
 
-```
-edubot/
-├── app/
-│   ├── api/
-│   │   └── chat/
-│   │       └── route.ts        # 🔧 Chat API: RAG + Groq + Tool calling
-│   ├── globals.css             # 🎨 Global styles + markdown prose
-│   ├── layout.tsx              # 📐 Root layout with metadata
-│   └── page.tsx                # 🖥️  Main chat UI (multimodal)
-│
-├── lib/
-│   ├── knowledge-base.ts       # 📚 Ed-Tech RAG document corpus (20+ docs)
-│   └── rag.ts                  # 🔍 TF-IDF retrieval engine
-│
-├── .env.example                # 🔑 Environment variable template
-├── next.config.ts
-├── tailwind.config.ts
-└── README.md
-```
+To fully evaluate the chatbot's capabilities, try the following prompts:
+
+**1. RAG (Context Retrieval)**
+* **Prompt:** *"What is the Pomodoro technique and how do I use it?"*
+* **Expected:** Athena will retrieve the exact intervals and rules from the local knowledge base (`lib/knowledge-base.ts`).
+
+**2. Vision (Multimodal & Client-Side Compression)**
+* **Action:** Click the 📎 paperclip icon to upload an image of a math equation, diagram, or UI layout.
+* **Prompt:** *"Please analyze this image in detail."*
+* **Expected:** The image is compressed on the client, analyzed by Gemini 2.5 Flash, and streams back a structured Markdown response.
+
+**3. Generative UI & Tool Calling**
+* **Prompt:** *"Calculate (15 * 4 + 200) / 3"*
+  * **Expected:** Renders a custom purple Calculator UI widget.
+* **Prompt:** *"Generate a beginner quiz on cell biology."*
+  * **Expected:** Renders a custom gold Quiz Generator UI widget.
 
 ---
-
-## 🏗️ Architecture
-
-```
-User Message (text + optional image)
-        │
-        ▼
-  app/api/chat/route.ts
-        │
-        ├─── 1. Extract query text from message parts
-        │
-        ├─── 2. RAG Retrieval (lib/rag.ts)
-        │         └── TF-IDF cosine similarity
-        │         └── Returns top-3 relevant KB documents
-        │
-        ├─── 3. Build system prompt with RAG context injected
-        │
-        ├─── 4. streamText() with Groq (llama-3.2-11b-vision-instruct)
-        │         └── Supports text + image inputs
-        │         └── Tool definitions: calculate, generate_quiz, get_study_tips
-        │
-        └─── 5. Stream response back to client
-```
-
----
-
-## 🎯 Demo Guide
-
-### Text Query with RAG
-1. Ask: *"What is spaced repetition and how do I use it?"*
-   - EduBot retrieves the spaced repetition document from the knowledge base
-   - Answers with specific context from the KB + general knowledge
-
-### Image Analysis
-1. Click the 📎 button (or drag & drop an image)
-2. Upload a photo of a math problem, biology diagram, or equation
-3. Ask: *"Explain this diagram"* or *"Solve this problem"*
-
-### Quiz Generator
-1. Type: *"Quiz me on Newton's laws of motion — 3 intermediate questions"*
-2. EduBot calls the `generate_quiz` tool and creates a multiple-choice quiz
-
-### Calculator
-1. Type: *"What is (15 * 4 + 200) / (3^2)"*
-2. EduBot calls the `calculate` tool and shows the result
-
-### Study Tips
-1. Type: *"I have an exam in physics next week and I struggle with circuits"*
-2. EduBot calls `get_study_tips` with your subject and challenge
-
----
-
-## 📚 Knowledge Base
-
-The RAG system indexes **20+ documents** across these categories:
-
-| Category | Topics |
-|----------|--------|
-| Study Techniques | Spaced Repetition, Active Recall, Feynman Technique, Pomodoro, Mind Mapping, Cornell Notes |
-| Mathematics | Algebra, Calculus (Derivatives & Integrals), Statistics & Probability, Geometry |
-| Biology | Cell Biology, DNA & Genetics |
-| Chemistry | Atomic Structure & Periodic Table |
-| Physics | Newton's Laws of Motion, Electricity & Circuits |
-| Computer Science | Programming Fundamentals, Python Basics |
-| History | World War II Overview |
-| English & Writing | Essay Structure & Thesis Writing |
-
-### Extending the knowledge base
-
-To add more documents, edit `lib/knowledge-base.ts`:
-
-```typescript
-export const knowledgeBase: KBDocument[] = [
-  // ... existing docs
-  {
-    id: "new-001",
-    title: "Your New Topic",
-    category: "Your Category",
-    tags: ["tag1", "tag2", "keyword"],
-    content: `Full text content of the document...`,
-  },
-];
-```
-
-The RAG engine automatically re-indexes on the next request.
-
----
-
-## 🔒 Environment Variables
-
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `GROQ_API_KEY` | ✅ Yes | Groq API key from [console.groq.com](https://console.groq.com) |
-
----
-
-## 🤝 Contributing
-
-1. Fork the repo
-2. Create your feature branch: `git checkout -b feature/amazing-feature`
-3. Commit your changes: `git commit -m 'Add amazing feature'`
-4. Push to the branch: `git push origin feature/amazing-feature`
-5. Open a Pull Request
-
----
-
-## 📄 License
-
-MIT License — free to use, modify, and distribute.
-
----
-
-Built with ❤️ using [Next.js](https://nextjs.org), [Vercel AI SDK](https://sdk.vercel.ai), and [Groq](https://groq.com).
+*Developed by Chaitanya Vikas for the AI Ready School Assessment.*
