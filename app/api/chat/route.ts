@@ -146,7 +146,7 @@ ${ragContext}
       model: groq("llama-3.1-8b-instant"),
       system: systemPrompt,
       messages: textOnlyMessages,
-      maxTokens: 8192,
+      maxTokens: 1500,
       tools: {
         calculate: tool({
           description: "Evaluate a mathematical expression.",
