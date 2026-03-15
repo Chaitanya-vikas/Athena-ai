@@ -16,7 +16,6 @@ async function analyzeImageWithGemini(
   const apiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY!;
   const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
 
-  // Extract base64 from data URL
   const [header, base64Data] = imageDataUrl.split(",");
   const mimeType = header.match(/data:([^;]+)/)?.[1] ?? "image/jpeg";
 
@@ -29,7 +28,6 @@ async function analyzeImageWithGemini(
         { inline_data: { mime_type: mimeType, data: base64Data } },
       ],
     }],
-    // Added temperature and topP to prevent Gemini from getting stuck in repetition loops
     generationConfig: { maxOutputTokens: 8192, temperature: 0.4, topP: 0.95 },
   };
 
@@ -53,11 +51,9 @@ export async function POST(req: Request) {
     const { messages } = await req.json();
     const lastMsg = messages[messages.length - 1];
 
-    // Detect image in content array
     const hasImage = Array.isArray(lastMsg?.content) &&
       lastMsg.content.some((p: { type: string }) => p.type === "image");
 
-    // Extract text
     let queryText = "";
     if (typeof lastMsg?.content === "string") {
       queryText = lastMsg.content;
@@ -68,11 +64,8 @@ export async function POST(req: Request) {
         .join(" ");
     }
 
-    console.log("hasImage:", hasImage, "queryText:", queryText.slice(0, 50));
-
     const ragContext = await retrieveContext(queryText, 3);
 
-    // ─── UPDATED PROMPT: Dual-Persona Routing ───────────────────────────────
     const systemPrompt = `You are Athena — an elite, dual-expert AI. Depending on the user's prompt, you seamlessly switch between two personas: a **Master Academic Tutor** (for school subjects) and a **World-Class Senior Software Engineer** (for technology and coding).
 
 ## KNOWLEDGE BASE CONTEXT:
@@ -100,34 +93,30 @@ ${ragContext}
 
 ## MULTIMODAL & IMAGE ANALYSIS RULES:
 - **If the image contains code/errors:** Transcribe the error perfectly, state the exact root cause, and immediately provide the fixed code.
-- **If the image is a UI/Website design:** Break down the DOM/component structure logically before writing the HTML/CSS/React code.
+- **If the image is a UI/Website design:** Break down the DOM/component structure logically before writing the HTML/CSS/React code. Provide COMPLETE code without truncating.
 - **If the image is a Math/Science diagram:** Adopt the **Academic Tutor Mode** to explain the diagram comprehensively without writing code.`;
 
     if (hasImage) {
-      console.log("Using Gemini REST API directly for vision");
-
-      // Get the image from the content array
       const imagepart = lastMsg.content.find((p: { type: string }) => p.type === "image");
       const imageUrl: string = imagepart?.image ?? "";
 
       const text = await analyzeImageWithGemini(imageUrl, queryText, systemPrompt);
-      console.log("Gemini response length:", text.length);
 
-     // Return as a simple AI SDK compatible stream
       const encoder = new TextEncoder();
       const stream = new ReadableStream({
         async start(controller) {
-          const chunkSize = 200;
+          const chunkSize = 150; 
           for (let i = 0; i < text.length; i += chunkSize) {
             const chunk = text.slice(i, i + chunkSize);
             controller.enqueue(encoder.encode(`0:${JSON.stringify(chunk)}\n`));
-            
-            // A microscopic delay forces Vercel to flush the network packets
-            // before the serverless function shuts down!
             await new Promise(resolve => setTimeout(resolve, 5));
           }
           
-          // End of stream markers
+          // THE BULLETPROOF BUFFER FLUSH:
+          // Forces Vercel to wait half a second before killing the function, ensuring 
+          // the massive wall of HTML/CSS code successfully transmits over the network.
+          await new Promise(resolve => setTimeout(resolve, 500));
+          
           controller.enqueue(encoder.encode(`d:{"finishReason":"stop","usage":{"promptTokens":0,"completionTokens":0}}\n`));
           controller.close();
         },
@@ -141,10 +130,7 @@ ${ragContext}
       });
     }
 
-    // Text only — Groq with tools
-    console.log("Using Groq 70B");
-
-    // Strip images out of the chat history so the text-only model doesn't crash!
+    // Text only — Llama 8B for stability and rate limits
     const textOnlyMessages = messages.map((msg: any) => {
       if (Array.isArray(msg.content)) {
         const textContent = msg.content
@@ -157,7 +143,7 @@ ${ragContext}
     });
 
     const result = streamText({
-      model: groq("llama-3.3-70b-versatile"),
+      model: groq("llama-3.1-8b-instant"),
       system: systemPrompt,
       messages: textOnlyMessages,
       maxTokens: 8192,

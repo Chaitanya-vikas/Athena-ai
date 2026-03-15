@@ -481,7 +481,7 @@ export default function Home() {
         throw new Error(`Server returned ${res.status}`);
       }
 
-      // THE FIX: True Real-Time Streaming implementation!
+      // THE FIX: Flawless Stream Decoder that flushes the final chunks safely
       const reader = res.body?.getReader();
       if (!reader) throw new Error("No response stream");
       
@@ -490,16 +490,18 @@ export default function Home() {
 
       while (true) {
         const { done, value } = await reader.read();
-        if (done) break;
-
-        // Decode the incoming chunk and add it to our raw buffer
-        rawBuffer += decoder.decode(value, { stream: true });
         
+        if (value) {
+           rawBuffer += decoder.decode(value, { stream: true });
+        }
+        if (done) {
+           rawBuffer += decoder.decode(); 
+        }
+
         let tempContent = "";
         let tempToolName;
         let tempToolResult;
 
-        // Parse the buffer live
         const lines = rawBuffer.split('\n');
         for (const line of lines) {
           const t = line.trim();
@@ -522,13 +524,13 @@ export default function Home() {
         toolName = tempToolName;
         toolResult = tempToolResult;
 
-        // Update the UI in real time!
         setMessages(prev => prev.map(m =>
           m.id === assistantId ? { ...m, content: fullContent, toolName, toolResult } : m
         ));
+
+        if (done) break;
       }
 
-      // If the stream finishes completely empty, explicitly tell the UI it failed so it doesn't hang on "Thinking..."
       if (!fullContent && !toolName) {
          fullContent = "⚠️ No response received from the AI. Please try asking again.";
       }
