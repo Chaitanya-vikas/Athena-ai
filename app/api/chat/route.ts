@@ -1,49 +1,140 @@
 import { createGroq } from "@ai-sdk/groq";
-import { streamText, tool } from "ai";
-import { z } from "zod";
+import { streamText } from "ai";
 import { retrieveContext } from "@/lib/rag";
 
 export const maxDuration = 60;
 
 const groq = createGroq({ apiKey: process.env.GROQ_API_KEY! });
 
-/* ── Gemini REST API directly (bypasses SDK version issues) ─────────────────── */
-async function analyzeImageWithGemini(
-  imageDataUrl: string,
-  prompt: string,
-  systemPrompt: string
-): Promise<string> {
-  const apiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY!;
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+/* ── Trim chat history to avoid token exhaustion ────────────────────── */
+function trimMessages(messages: { role: string; content: unknown }[], max = 10) {
+  if (messages.length <= max) return messages;
+  console.log(`[Athena] Trimming: ${messages.length} → ${max} messages`);
+  return messages.slice(messages.length - max);
+}
 
+/* ── Gemini 2.5 Flash via direct REST API ───────────────────────────── */
+async function callGemini(imageDataUrl: string, prompt: string, systemPrompt: string): Promise<string> {
+  const apiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY;
+  if (!apiKey) throw new Error("GOOGLE_GENERATIVE_AI_API_KEY not set");
   const [header, base64Data] = imageDataUrl.split(",");
   const mimeType = header.match(/data:([^;]+)/)?.[1] ?? "image/jpeg";
+  const res = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        system_instruction: { parts: [{ text: systemPrompt }] },
+        contents: [{ role: "user", parts: [
+          { text: prompt || "Analyze this image in detail." },
+          { inline_data: { mime_type: mimeType, data: base64Data } },
+        ]}],
+        generationConfig: { maxOutputTokens: 8192, temperature: 0.4 },
+      }),
+    }
+  );
+  if (!res.ok) throw new Error(`Gemini ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  const data = await res.json();
+  const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+  if (!text) throw new Error("Gemini returned empty response");
+  return text;
+}
 
-  const body = {
-    system_instruction: { parts: [{ text: systemPrompt }] },
-    contents: [{
-      role: "user",
-      parts: [
-        { text: prompt || "Please analyze this image in detail and write any necessary code." },
-        { inline_data: { mime_type: mimeType, data: base64Data } },
-      ],
-    }],
-    generationConfig: { maxOutputTokens: 8192, temperature: 0.4, topP: 0.95 },
-  };
-
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
+/* ── Stream plain text in AI SDK format ─────────────────────────────── */
+function textToStream(text: string): Response {
+  const enc = new TextEncoder();
+  const stream = new ReadableStream({
+    async start(ctrl) {
+      for (let i = 0; i < text.length; i += 80) {
+        ctrl.enqueue(enc.encode(`0:${JSON.stringify(text.slice(i, i + 80))}\n`));
+        await new Promise(r => setTimeout(r, 4));
+      }
+      ctrl.enqueue(enc.encode(`d:{"finishReason":"stop","usage":{"promptTokens":0,"completionTokens":0}}\n`));
+      ctrl.close();
+    },
   });
+  return new Response(stream, {
+    headers: { "Content-Type": "text/plain; charset=utf-8", "X-Vercel-AI-Data-Stream": "v1" },
+  });
+}
 
-  if (!res.ok) {
-    const err = await res.text();
-    throw new Error(`Gemini API error ${res.status}: ${err.slice(0, 200)}`);
+/* ── Stream a tool result + AI explanation together ─────────────────── */
+function toolResultToStream(toolName: string, result: Record<string, unknown>, explanation: string): Response {
+  // Tool result format: a: line, then text
+  const enc = new TextEncoder();
+  const stream = new ReadableStream({
+    async start(ctrl) {
+      // Emit tool result in AI SDK format
+      const toolPayload = JSON.stringify({ toolName, result });
+      ctrl.enqueue(enc.encode(`a:${toolPayload}\n`));
+      await new Promise(r => setTimeout(r, 10));
+      // Emit the explanation text
+      for (let i = 0; i < explanation.length; i += 80) {
+        ctrl.enqueue(enc.encode(`0:${JSON.stringify(explanation.slice(i, i + 80))}\n`));
+        await new Promise(r => setTimeout(r, 4));
+      }
+      ctrl.enqueue(enc.encode(`d:{"finishReason":"stop","usage":{"promptTokens":0,"completionTokens":0}}\n`));
+      ctrl.close();
+    },
+  });
+  return new Response(stream, {
+    headers: { "Content-Type": "text/plain; charset=utf-8", "X-Vercel-AI-Data-Stream": "v1" },
+  });
+}
+
+/* ── Manual tool detection — we decide, not the model ───────────────── */
+type ToolResult =
+  | { tool: "calculate"; expression: string; result: number | null; error?: string }
+  | { tool: "quiz"; topic: string; difficulty: string; num: number }
+  | { tool: "study_tips"; subject: string }
+  | null;
+
+function detectTool(text: string): ToolResult {
+  const t = text.toLowerCase().trim();
+
+  // Calculator: "calculate X", "compute X", "what is X" with math symbols
+  const calcPatterns = [
+    /^(?:calculate|compute|eval(?:uate)?|solve|what(?:'s| is))\s+(.+)/i,
+    /^(.+[+\-*/^%].+)$/, // expression with operators
+  ];
+  for (const pat of calcPatterns) {
+    const m = text.match(pat);
+    if (m) {
+      const expr = m[1]?.trim() ?? text;
+      // Only if it looks like math (has numbers and operators)
+      if (/\d/.test(expr) && /[+\-*/^%()]/.test(expr)) {
+        try {
+          const safe = expr.replace(/[^0-9+\-*/().,%^\sMath\w]/g, "").trim();
+          // eslint-disable-next-line no-new-func
+          const val = Function('"use strict"; const Math=globalThis.Math; return (' + safe + ")")();
+          if (typeof val === "number" && isFinite(val))
+            return { tool: "calculate", expression: expr, result: val };
+        } catch {
+          return { tool: "calculate", expression: expr, result: null, error: "Could not evaluate" };
+        }
+      }
+    }
   }
 
-  const data = await res.json();
-  return data.candidates?.[0]?.content?.parts?.[0]?.text ?? "No response from Gemini.";
+  // Quiz: "quiz me on X", "test me on X", "generate quiz about X"
+  const quizMatch = t.match(/(?:quiz|test)\s+(?:me\s+)?(?:on|about)\s+(.+)/);
+  if (quizMatch) {
+    const topic = quizMatch[1].replace(/\s*\d+\s*questions?/i, "").trim();
+    const diffMatch = t.match(/\b(beginner|intermediate|advanced|easy|medium|hard)\b/);
+    const numMatch = t.match(/(\d+)\s*questions?/);
+    const diffMap: Record<string, string> = { easy: "beginner", medium: "intermediate", hard: "advanced" };
+    const diff = diffMatch ? (diffMap[diffMatch[1]] ?? diffMatch[1]) : "intermediate";
+    return { tool: "quiz", topic, difficulty: diff, num: numMatch ? parseInt(numMatch[1]) : 5 };
+  }
+
+  // Study tips: "study tips for X", "how to study X", "tips to learn X"
+  const tipsMatch = t.match(/(?:study tips?|how to study|tips? (?:to|for) (?:learn|study)|help me (?:learn|study))\s+(?:for\s+)?(.+)/);
+  if (tipsMatch) {
+    return { tool: "study_tips", subject: tipsMatch[1].trim() };
+  }
+
+  return null;
 }
 
 export async function POST(req: Request) {
@@ -51,150 +142,184 @@ export async function POST(req: Request) {
     const { messages } = await req.json();
     const lastMsg = messages[messages.length - 1];
 
+    // Detect image
     const hasImage = Array.isArray(lastMsg?.content) &&
       lastMsg.content.some((p: { type: string }) => p.type === "image");
 
+    // Extract text
     let queryText = "";
     if (typeof lastMsg?.content === "string") {
       queryText = lastMsg.content;
     } else if (Array.isArray(lastMsg?.content)) {
       queryText = lastMsg.content
         .filter((p: { type: string }) => p.type === "text")
-        .map((p: { text: string }) => p.text)
-        .join(" ");
+        .map((p: { text: string }) => p.text).join(" ");
     }
+
+    console.log(`[Athena] hasImage:${hasImage} msgs:${messages.length} query:"${queryText.slice(0,60)}"`);
 
     const ragContext = await retrieveContext(queryText, 3);
 
-    const systemPrompt = `You are Athena — an elite, dual-expert AI. Depending on the user's prompt, you seamlessly switch between two personas: a **Master Academic Tutor** (for school subjects) and a **World-Class Senior Software Engineer** (for technology and coding).
+    const systemPrompt = `You are Athena — an elite AI with two modes: a world-class Academic Professor and a Senior Software Engineer.
 
-## KNOWLEDGE BASE CONTEXT:
+## KNOWLEDGE BASE:
 ${ragContext}
 
-## PERSONA ROUTING & RESPONSE GUIDELINES (CRITICAL):
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🎓 PROFESSOR MODE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+USE FOR: math, science, history, literature, biology, physics, chemistry, study help.
 
-### 1. Casual Chat & Greetings ("hello", "how are you")
-- **Tone:** Warm, professional, and concise. 
-- **Action:** Respond naturally in 1-2 sentences. Ask how you can help them learn today.
+You are a patient, brilliant professor who makes complex ideas feel exciting.
 
-### 2. The Academic Tutor Mode (Math, Science, History, Literature, etc.)
-- **Tone:** Patient, encouraging, highly structured, and academic.
-- **Format:** Use "First Principles" thinking. Break complex topics into digestible bullet points, analogies, and step-by-step logical progressions.
-- **ABSOLUTE STRICT RULE:** DO NOT write Python, JavaScript, C++, HTML, or any computer code whatsoever unless the user explicitly asks for a script. If they ask about limits in Calculus, teach the math concept purely with mathematical notation and text.
-- **Closing:** End with "**Key Takeaway:**" followed by a single, bold sentence summarizing the core academic concept.
+FORMAT:
+1. **Hook** — One bold insight to grab attention
+2. **Core Concept** — Explain "why" before "what", use a real-world analogy
+3. **Breakdown** — Numbered steps, clear explanations
+4. **Example** — One concrete example
+5. **Common Pitfalls** — 1-2 mistakes students make (if relevant)
+6. **Key Takeaway:** [one powerful sentence]
 
-### 3. The Tech Genius Mode (Coding, Architecture, Tech Stacks, UI/UX)
-- **Tone:** Direct, industry-standard, brilliant, and highly efficient. You write production-grade code.
-- **Structure:** You MUST use the following exact structure:
-  - **The Core Analysis:** Start with a sharp, 1-2 sentence architectural summary or root-cause analysis.
-  - **Code Generation:** IMMEDIATELY provide the full, clean, highly-optimized code in Markdown blocks. Include brief inline comments for complex logic. Do not truncate.
-  - **Step-by-Step Logic:** Briefly explain the "why" behind your code (e.g., time complexity, design patterns used, or CSS structure).
-  - **Closing:** End with "**Key Takeaway:**" followed by a single, bold sentence summarizing the technical concept.
+RULES: Warm tone. Use ## headers, bullet points, numbered lists. Bold key terms. NO code unless asked.
 
-## MULTIMODAL & IMAGE ANALYSIS RULES:
-- **If the image contains code/errors:** Transcribe the error perfectly, state the exact root cause, and immediately provide the fixed code.
-- **If the image is a UI/Website design:** Break down the DOM/component structure logically before writing the HTML/CSS/React code. Provide COMPLETE code without truncating.
-- **If the image is a Math/Science diagram:** Adopt the **Academic Tutor Mode** to explain the diagram comprehensively without writing code.`;
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+💻 ENGINEER MODE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+USE FOR: coding, programming, debugging, algorithms, system design.
 
+You are a senior engineer — direct, writing production-grade code.
+
+FORMAT:
+1. **The Core Analysis** — 1-2 sentences: optimal approach + Big O if relevant
+2. **Complete Code** — Full working code in fenced \`\`\`language block. NEVER truncate. Add inline comments.
+3. **How It Works** — Numbered explanation of key logic
+4. **Edge Cases** — What to watch out for (if relevant)
+5. **Key Takeaway:** [one sentence on the core technique]
+
+RULES: Direct, no fluff. Always fenced code blocks with language. Never cut code.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+💬 CONVERSATIONAL MODE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+USE FOR: hi, hello, greetings. Respond warmly in 1-3 sentences.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🖼️ IMAGE ANALYSIS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+- Code/error: exact error → root cause → complete fixed code
+- UI/design: layout analysis → complete HTML/CSS/React (never truncate)
+- Math/diagram: Professor Mode
+- General: rich educational description`;
+
+    // ── IMAGE → Gemini 2.5 Flash ──────────────────────────────────────
     if (hasImage) {
-      const imagepart = lastMsg.content.find((p: { type: string }) => p.type === "image");
-      const imageUrl: string = imagepart?.image ?? "";
+      console.log("[Athena] → Gemini vision");
+      const imgPart = lastMsg.content.find((p: { type: string }) => p.type === "image");
+      if (!imgPart?.image) throw new Error("No image data found");
+      const text = await callGemini(imgPart.image, queryText, systemPrompt);
+      return textToStream(text);
+    }
 
-      const text = await analyzeImageWithGemini(imageUrl, queryText, systemPrompt);
+    // ── TOOL DETECTION — manual, reliable ────────────────────────────
+    const detectedTool = detectTool(queryText);
 
-      const encoder = new TextEncoder();
-      const stream = new ReadableStream({
-        async start(controller) {
-          const chunkSize = 150; 
-          for (let i = 0; i < text.length; i += chunkSize) {
-            const chunk = text.slice(i, i + chunkSize);
-            controller.enqueue(encoder.encode(`0:${JSON.stringify(chunk)}\n`));
-            await new Promise(resolve => setTimeout(resolve, 5));
-          }
-          
-          // THE BULLETPROOF BUFFER FLUSH:
-          // Forces Vercel to wait half a second before killing the function, ensuring 
-          // the massive wall of HTML/CSS code successfully transmits over the network.
-          await new Promise(resolve => setTimeout(resolve, 500));
-          
-          controller.enqueue(encoder.encode(`d:{"finishReason":"stop","usage":{"promptTokens":0,"completionTokens":0}}\n`));
-          controller.close();
-        },
+    if (detectedTool?.tool === "calculate") {
+      console.log("[Athena] → Tool: calculate");
+      const result = {
+        expression: detectedTool.expression,
+        result: detectedTool.result,
+        success: detectedTool.result !== null,
+        error: detectedTool.error,
+      };
+      const explanation = detectedTool.result !== null
+        ? `**${detectedTool.expression} = ${detectedTool.result}**\n\n**Key Takeaway:** The expression evaluates to ${detectedTool.result}.`
+        : `⚠️ Could not evaluate: ${detectedTool.error}`;
+      return toolResultToStream("calculate", result, explanation);
+    }
+
+    if (detectedTool?.tool === "quiz") {
+      console.log("[Athena] → Tool: generate_quiz");
+      const result = {
+        topic: detectedTool.topic,
+        difficulty: detectedTool.difficulty,
+        num_questions: detectedTool.num,
+        success: true,
+      };
+      // Let Groq generate the actual quiz content
+      const quizPrompt = `Generate ${detectedTool.num} ${detectedTool.difficulty}-level multiple-choice questions about "${detectedTool.topic}". 
+For each question: write it clearly, provide 4 options labeled A–D, mark the correct answer with ✓, and give a one-sentence explanation.
+Format each question with a clear number and spacing.`;
+
+      const trimmedForQuiz = trimMessages(
+        [{ role: "user" as const, content: quizPrompt }], 1
+      );
+
+      const quizResult = streamText({
+        model: groq("llama-3.3-70b-versatile"),
+        system: systemPrompt,
+        messages: trimmedForQuiz,
+        maxTokens: 4096,
       });
 
-      return new Response(stream, {
-        headers: {
-          "Content-Type": "text/plain; charset=utf-8",
-          "X-Vercel-AI-Data-Stream": "v1",
+      // Prepend tool result to stream
+      const enc = new TextEncoder();
+      const toolLine = enc.encode(`a:${JSON.stringify({ toolName: "generate_quiz", result })}\n`);
+      const quizStream = await quizResult.toDataStreamResponse();
+      const reader = quizStream.body!.getReader();
+
+      const stream = new ReadableStream({
+        async start(ctrl) {
+          ctrl.enqueue(toolLine);
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            ctrl.enqueue(value);
+          }
+          ctrl.close();
         },
+      });
+      return new Response(stream, {
+        headers: { "Content-Type": "text/plain; charset=utf-8", "X-Vercel-AI-Data-Stream": "v1" },
       });
     }
 
-    // Text only — Llama 8B for stability and rate limits
-    const textOnlyMessages = messages.map((msg: any) => {
+    if (detectedTool?.tool === "study_tips") {
+      console.log("[Athena] → Tool: study_tips");
+      const tips = [
+        "Spaced repetition: review after 1 → 3 → 7 → 30 days",
+        "Active recall: test yourself instead of re-reading",
+        "Feynman Technique: explain as if teaching a 12-year-old",
+        "Pomodoro: 25-min focused blocks with 5-min breaks",
+        "Sleep 7–9 hours — memory consolidation happens during sleep",
+      ];
+      const result = { subject: detectedTool.subject, tips, reminder: "30 min daily beats 3-hour cramming.", success: true };
+      const explanation = `Here are evidence-based study tips for **${detectedTool.subject}**:\n\n${tips.map(t => `• ${t}`).join("\n")}\n\n**Key Takeaway:** Consistency and active learning always outperform passive re-reading.`;
+      return toolResultToStream("get_study_tips", result, explanation);
+    }
+
+    // ── REGULAR TEXT → Groq ───────────────────────────────────────────
+    console.log("[Athena] → Groq text");
+    const textMessages = messages.map((msg: { role: string; content: unknown }) => {
       if (Array.isArray(msg.content)) {
-        const textContent = msg.content
-          .filter((p: any) => p.type === "text")
-          .map((p: any) => p.text)
-          .join("\n");
-        return { ...msg, content: textContent };
+        const t = (msg.content as { type: string; text?: string }[])
+          .filter(p => p.type === "text").map(p => p.text ?? "").join("\n").trim();
+        return { ...msg, content: t || "(image)" };
       }
       return msg;
     });
 
     const result = streamText({
-      model: groq("llama-3.1-8b-instant"),
+      model: groq("llama-3.3-70b-versatile"),
       system: systemPrompt,
-      messages: textOnlyMessages,
-      maxTokens: 1500,
-      tools: {
-        calculate: tool({
-          description: "Evaluate a mathematical expression.",
-          parameters: z.object({ expression: z.string() }),
-          execute: async ({ expression }) => {
-            try {
-              const safe = expression.replace(/[^0-9+\-*/().,%^\sMath\w]/g, "").trim();
-              // eslint-disable-next-line no-new-func
-              const result = Function('"use strict"; const Math = globalThis.Math; return (' + safe + ")")();
-              if (typeof result !== "number" || !isFinite(result)) return { success: false, error: "Invalid", expression };
-              return { success: true, result, expression };
-            } catch (error: any) {
-              return { success: false, error: error.message || "Calculation failed", expression };
-            }
-          },
-        }),
-        generate_quiz: tool({
-          description: "Generate a quiz based on a topic.",
-          parameters: z.object({
-            topic: z.string(),
-            difficulty: z.enum(["beginner", "intermediate", "advanced"]),
-            num_questions: z.number().min(1).max(10),
-          }),
-          execute: async ({ topic, difficulty, num_questions }) => {
-            return { topic, difficulty, num_questions, success: true };
-          },
-        }),
-        get_study_tips: tool({
-          description: "Provide study tips for a specific subject.",
-          parameters: z.object({ subject: z.string() }),
-          execute: async ({ subject }) => {
-            return {
-              subject,
-              tips: [
-                "Use spaced repetition to memorize facts.",
-                "Try the Feynman Technique: teach it to someone else.",
-                "Take practice tests to find your weak spots."
-              ],
-              reminder: "Consistency is more important than cramming!"
-            };
-          },
-        })
-      },
+      messages: trimMessages(textMessages, 10),
+      maxTokens: 4096,
     });
 
     return result.toDataStreamResponse();
+
   } catch (error) {
-    console.error("API Error:", error);
-    return new Response(JSON.stringify({ error: "Internal Server Error" }), { status: 500 });
+    console.error("[Athena] ERROR:", error);
+    const msg = error instanceof Error ? error.message : "Unknown error";
+    return textToStream(`⚠️ **Error:** ${msg}\n\nPlease try again. If this persists, wait 1 minute (API rate limit may have been hit).`);
   }
 }
