@@ -64,7 +64,7 @@ npm install
 
 ### 3. Configure Environment Variables
 ```bash
-Create a \`.env.local\` file in the root directory and add your API keys:
+Create a ".env.local" file in the root directory and add your API keys:
 env
 ```
 # Get your free key at: https://console.groq.com/
