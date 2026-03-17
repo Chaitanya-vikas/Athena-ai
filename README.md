@@ -52,19 +52,20 @@ To provide the highest quality responses while avoiding standard framework paylo
 Follow these steps to run Athena on your local machine.
 
 ### 1. Clone the repository
-\`\`\`bash
+```bash
 git clone https://github.com/Chaitanya-vikas/Athena-ai
 cd athena-edubot
-\`\`\`
+```
 
 ### 2. Install dependencies
-\`\`\`bash
+```bash
 npm install
-\`\`\`
-
+```
+```
 ### 3. Configure Environment Variables
 Create a \`.env.local\` file in the root directory and add your API keys:
-\`\`\`env
+env
+```
 # Get your free key at: https://console.groq.com/
 GROQ_API_KEY=your_groq_api_key_here
 
