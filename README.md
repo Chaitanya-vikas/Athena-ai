@@ -52,13 +52,13 @@ To provide the highest quality responses while avoiding standard framework paylo
 Follow these steps to run Athena on your local machine.
 
 ### 1. Clone the repository
-```bash
+bash```
 git clone https://github.com/Chaitanya-vikas/Athena-ai
 cd athena-edubot
 ```
 
 ### 2. Install dependencies
-```bash
+bash```
 npm install
 ```
 ```
@@ -71,12 +71,12 @@ GROQ_API_KEY=your_groq_api_key_here
 
 # Get your free key at: https://aistudio.google.com/
 GOOGLE_GENERATIVE_AI_API_KEY=your_gemini_api_key_here
-\`\`\`
+
 
 ### 4. Run the development server
-\`\`\`bash
+bash```
 npm run dev
-\`\`\`
+```
 Open [http://localhost:3000](http://localhost:3000) in your browser to start chatting!
 
 ---
