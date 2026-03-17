@@ -96,18 +96,24 @@ function detectTool(text: string): ToolResult {
   // Calculator: "calculate X", "compute X", "what is X" with math symbols
   const calcPatterns = [
     /^(?:calculate|compute|eval(?:uate)?|solve|what(?:'s| is))\s+(.+)/i,
-    /^(.+[+\-*/^%].+)$/, // expression with operators
+    /^(.+[+\-*/^%×÷].+)$/, // expression with operators including Unicode
   ];
   for (const pat of calcPatterns) {
     const m = text.match(pat);
     if (m) {
       const expr = m[1]?.trim() ?? text;
-      // Only if it looks like math (has numbers and operators)
-      if (/\d/.test(expr) && /[+\-*/^%()]/.test(expr)) {
+      // Only if it looks like math (has numbers and operators, including Unicode × ÷)
+      if (/\d/.test(expr) && /[+\-*/^%()×÷]/.test(expr)) {
         try {
-          const safe = expr.replace(/[^0-9+\-*/().,%^\sMath\w]/g, "").trim();
+          // Normalize Unicode math symbols to ASCII before evaluating
+          const normalized = expr
+            .replace(/×/g, "*")
+            .replace(/÷/g, "/")
+            .replace(/−/g, "-")
+            .replace(/[^0-9+\-*/().,%^\sMath\w]/g, "")
+            .trim();
           // eslint-disable-next-line no-new-func
-          const val = Function('"use strict"; const Math=globalThis.Math; return (' + safe + ")")();
+          const val = Function('"use strict"; const Math=globalThis.Math; return (' + normalized + ")")();
           if (typeof val === "number" && isFinite(val))
             return { tool: "calculate", expression: expr, result: val };
         } catch {
@@ -248,7 +254,7 @@ USE FOR: hi, hello, greetings. Respond warmly in 1-3 sentences.
       // Let Groq generate the actual quiz content
       const quizPrompt = `Generate ${detectedTool.num} ${detectedTool.difficulty}-level multiple-choice questions about "${detectedTool.topic}". 
 For each question: write it clearly, provide 4 options labeled A–D, mark the correct answer with ✓, and give a one-sentence explanation.
-Format each question with a clear number and spacing.`;
+Format each question with a clear numbering and spacing.and separate questions,options,explanations with newlines.`;
 
       const trimmedForQuiz = trimMessages(
         [{ role: "user" as const, content: quizPrompt }], 1

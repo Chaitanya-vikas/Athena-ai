@@ -320,25 +320,60 @@ body::before {
   box-shadow: 0 0 6px var(--lime);
 }
 
+/* ── Level 1: numbered boxes  1  2  3 */
 .prose-grok ol {
   list-style: none; padding-left: 0;
-  margin: 0.6em 0; counter-reset: ol;
+  margin: 0.6em 0; counter-reset: lvl1;
 }
-.prose-grok ol li {
-  padding-left: 2em; position: relative;
-  margin: 0.4em 0; counter-increment: ol;
+.prose-grok ol > li {
+  padding-left: 2.2em; position: relative;
+  margin: 0.5em 0; counter-increment: lvl1;
 }
-.prose-grok ol li::before {
-  content: counter(ol);
+.prose-grok ol > li::before {
+  content: counter(lvl1);
   position: absolute; left: 0; top: 0.05em;
-  width: 1.4em; height: 1.4em;
+  width: 1.5em; height: 1.5em;
   display: flex; align-items: center; justify-content: center;
   background: var(--lime-dim);
-  border: 1px solid rgba(200,255,0,0.2);
-  border-radius: 4px;
-  font-size: 0.7rem; font-weight: 700;
+  border: 1px solid rgba(200,255,0,0.25);
+  border-radius: 5px;
+  font-size: 0.7rem; font-weight: 800;
   color: var(--lime);
   font-family: var(--font-display), sans-serif;
+}
+
+/* ── Level 2: alpha  a)  b)  c) */
+.prose-grok ol ol {
+  list-style: none; padding-left: 1.8em;
+  margin: 0.3em 0; counter-reset: lvl2;
+}
+.prose-grok ol ol > li {
+  padding-left: 2em; position: relative;
+  margin: 0.3em 0; counter-increment: lvl2;
+}
+.prose-grok ol ol > li::before {
+  content: counter(lvl2, lower-alpha) ")";
+  position: absolute; left: 0; top: 0;
+  font-size: 0.8rem; font-weight: 700;
+  color: var(--cyan);
+  font-family: var(--font-display), sans-serif;
+  width: 1.6em; text-align: left;
+}
+
+/* ── Level 3: dot bullets */
+.prose-grok ol ol ol {
+  list-style: none; padding-left: 1.6em;
+  margin: 0.25em 0; counter-reset: lvl3;
+}
+.prose-grok ol ol ol > li {
+  padding-left: 1.2em; position: relative;
+  margin: 0.2em 0;
+}
+.prose-grok ol ol ol > li::before {
+  content: "–";
+  position: absolute; left: 0; top: 0;
+  color: var(--text-3);
+  font-size: 0.9rem;
 }
 
 .prose-grok strong { color: #fff; font-weight: 600; }
