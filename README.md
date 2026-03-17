@@ -52,17 +52,18 @@ To provide the highest quality responses while avoiding standard framework paylo
 Follow these steps to run Athena on your local machine.
 
 ### 1. Clone the repository
-bash```
+```bash
 git clone https://github.com/Chaitanya-vikas/Athena-ai
 cd athena-edubot
 ```
 
 ### 2. Install dependencies
-bash```
+```bash
 npm install
 ```
-```
+
 ### 3. Configure Environment Variables
+```bash
 Create a \`.env.local\` file in the root directory and add your API keys:
 env
 ```
@@ -74,9 +75,10 @@ GOOGLE_GENERATIVE_AI_API_KEY=your_gemini_api_key_here
 
 
 ### 4. Run the development server
-bash```
+```bash
 npm run dev
 ```
+
 Open [http://localhost:3000](http://localhost:3000) in your browser to start chatting!
 
 ---
@@ -101,4 +103,4 @@ To fully evaluate the chatbot's capabilities, try the following prompts:
   * **Expected:** Renders a custom gold Quiz Generator UI widget.
 
 ---
-*Developed by Chaitanya Vikas for the AI Ready School Assessment.*
+*Developed by Chaitanya Vikas*
